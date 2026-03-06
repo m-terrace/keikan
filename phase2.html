@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>経管栄養ミニゲーム（フェーズ2）</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            touch-action: none;
+            font-family: 'Hiragino Maru Gothic ProN', 'Meiryo', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            background-color: #fff;
+            width: 1280px;
+            height: 720px;
+            transform-origin: center center;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UIレイヤー */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #progress-text {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #4a75a7;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 30px;
+            font-size: 28px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border: 3px solid #fff;
+        }
+
+        #message-box {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            background: linear-gradient(to bottom, #f2a65a, #d96f32);
+            border: 5px solid #fff;
+            border-radius: 40px;
+            padding: 20px 40px;
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.5);
+            transition: opacity 0.3s, transform 0.3s;
+            white-space: pre-line;
+            line-height: 1.4;
+        }
+
+        #message-box.hidden {
+            opacity: 0;
+            transform: translateX(-50%) translateY(20px);
+        }
+
+        #next-button {
+            position: absolute;
+            bottom: 40px;
+            right: 40px;
+            background: linear-gradient(to bottom, #5b8ad2, #395c96);
+            border: 4px solid #fff;
+            border-radius: 20px;
+            padding: 15px 50px;
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+            pointer-events: auto;
+            transition: transform 0.1s, filter 0.2s;
+            display: none;
+        }
+
+        #next-button:active {
+            transform: scale(0.95);
+        }
+
+        #next-button:hover {
+            filter: brightness(1.1);
+        }
+
+        #debug-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: #0f0;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            pointer-events: none;
+            display: none;
+        }
+
+        #end-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 230, 204, 0.9);
+            /* 温かみのある背景色 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #d96f32;
+            z-index: 20;
+            opacity: 0;
+            pointer-events: none;
+            /* 最初はクリック不可 */
+            transition: opacity 1s ease-in-out;
+        }
+
+        #end-screen.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        #end-screen h1 {
+            font-size: 60px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+            margin: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+        <div id="ui-layer">
+            <div id="progress-text">注入中 0 / 20</div>
+            <div id="message-box">ミルクを一定量、注入してあげましょう</div>
+            <button id="next-button">次へ</button>
+            <div id="end-screen">
+                <h1>よくがんばりました</h1>
+            </div>
+            <div id="debug-panel"></div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ScaleManager: ウィンドウサイズに合わせて1280x720の比率を維持
+         */
+        const container = document.getElementById('game-container');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const messageBox = document.getElementById('message-box');
+        const progressTextUI = document.getElementById('progress-text');
+        const nextButton = document.getElementById('next-button');
+        const debugPanel = document.getElementById('debug-panel');
+
+        const BASE_WIDTH = 1280;
+        const BASE_HEIGHT = 720;
+        let currentScale = 1;
+
+        function resize() {
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+            const scaleX = windowWidth / BASE_WIDTH;
+            const scaleY = windowHeight / BASE_HEIGHT;
+            currentScale = Math.min(scaleX, scaleY);
+            container.style.transform = `scale(${currentScale})`;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        /**
+         * 入力正規化
+         */
+        const pointer = { x: 0, y: 0, isDown: false, worldX: 0, worldY: 0, lastWorldY: 0 };
+
+        function updatePointer(e) {
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            }
+            const rect = container.getBoundingClientRect();
+            pointer.lastWorldY = pointer.worldY;
+            pointer.worldX = (clientX - rect.left) / currentScale;
+            pointer.worldY = (clientY - rect.top) / currentScale;
+            pointer.x = clientX;
+            pointer.y = clientY;
+        }
+
+        function handleStart(e) {
+            if (e.target === nextButton) return;
+            pointer.isDown = true;
+            updatePointer(e);
+
+            // ヒットエリア内判定
+            if (state.hitRect &&
+                pointer.worldX >= state.hitRect.x && pointer.worldX <= state.hitRect.x + state.hitRect.w &&
+                pointer.worldY >= state.hitRect.y && pointer.worldY <= state.hitRect.y + state.hitRect.h) {
+                state.isPushing = true;
+            }
+        }
+        function handleMove(e) {
+            if (pointer.isDown) updatePointer(e);
+        }
+        function handleEnd() {
+            pointer.isDown = false;
+            state.isPushing = false;
+        }
+
+        window.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+        window.addEventListener('touchstart', handleStart, { passive: false });
+        window.addEventListener('touchmove', handleMove, { passive: false });
+        window.addEventListener('touchend', handleEnd);
+
+        /**
+         * アセットパス設定（フォールバック対応）
+         */
+        const assetInfos = {
+            bg: 'assets/background.jpg',         // 背景画像
+            syringe: 'assets/syringe.png',      // シリンジ本体枠
+            plunger: 'assets/plunger.png',      // 押し子
+            alert: 'assets/alert.png',          // 警告アイコン（△！）
+            gauge_bg: 'assets/speed_gauge.png'  // 速度ゲージ枠
+        };
+
+        const assets = {};
+        let loadedCount = 0;
+        const totalAssets = Object.keys(assetInfos).length;
+
+        Object.keys(assetInfos).forEach(key => {
+            const img = new Image();
+            img.src = assetInfos[key];
+            img.onload = () => { assets[key] = { img: img, loaded: true }; checkLoad(); };
+            img.onerror = () => { assets[key] = { img: null, loaded: false }; checkLoad(); };
+        });
+
+        function checkLoad() {
+            loadedCount++;
+            if (loadedCount === totalAssets) initGame();
+        }
+
+        /**
+         * ゲームロジック / 状態
+         */
+        let lastTime = performance.now();
+        let isGameRunning = false;
+
+        const state = {
+            milk: 100,           // シリンジ内ミルク残量 0〜100
+            progress: 0,         // 注入達成度 0〜100
+            maxProgress: 20,     // ステップ式 (0〜20)
+            pushPos: 0,          // プランジャーの位置(0=一番上, 1=一番下)。progressと連動でも可
+            pushSpeed: 0,        // ドラッグ速度 (ピクセル/秒)
+            smoothSpeed: 0,
+            speedNorm: 0,        // 0〜1 に正規化された速度
+            zone: 'NONE',        // "NONE", "GREEN", "YELLOW", "RED"
+            phase: 'PLAY',       // "PLAY", "CHOKE", "CLEAR"
+            babyState: 'CALM',   // "CALM", "WARNING", "DANGER", "CHOKE"
+            chokeCount: 0,
+            chokeTimer: 0,
+
+            greenStayTime: 0,
+            redTime: 0,
+
+            messageTimer: 0,
+
+            // パラメータ
+            SPEED_MAX: 600,      // これで割ってspeedNormを出す（ピクセル/秒）
+            GREEN_MAX: 0.55,
+            YELLOW_MAX: 0.75,
+            baseProgressRate: 15,
+
+            alertBubbles: [],
+            isPushing: false,
+            hitRect: { x: 0, y: 0, w: 0, h: 0 },
+            glowTime: 0
+        };
+
+        function showMessage(text, duration = 0) {
+            messageBox.innerText = text;
+            messageBox.classList.remove('hidden');
+            if (duration > 0) state.messageTimer = duration;
+            else state.messageTimer = -1;
+        }
+
+        function initGame() {
+            state.milk = 100;
+            state.progress = 0;
+            state.pushPos = 0;
+            state.pushSpeed = 0;
+            state.smoothSpeed = 0;
+            state.phase = 'PLAY';
+            state.zone = 'NONE';
+            state.babyState = 'CALM';
+            state.greenStayTime = 0;
+            state.redTime = 0;
+            state.chokeCount = 0;
+            state.isPushing = false;
+
+            updateUI();
+            isGameRunning = true;
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateUI() {
+            // UI側の進捗テキストを更新 20段階（例: 20ml）にマッピング
+            let displayVal = Math.floor(state.progress);
+            if (displayVal > 20) displayVal = 20;
+            progressTextUI.innerText = `注入中 ${displayVal} / 20`;
+
+            debugPanel.innerHTML = `
+                Phase: ${state.phase}<br>
+                Baby: ${state.babyState}<br>
+                Zone: ${state.zone}<br>
+                Prog: ${state.progress.toFixed(1)}<br>
+                Spd: ${Math.floor(state.smoothSpeed)}<br>
+                Norm: ${state.speedNorm.toFixed(2)}
+            `;
+        }
+
+        function gameLoop(timestamp) {
+            if (!isGameRunning) return;
+            const dt = (timestamp - lastTime) / 1000;
+            lastTime = timestamp;
+
+            update(dt);
+            draw(timestamp);
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function update(dt) {
+            if (state.messageTimer > 0) {
+                state.messageTimer -= dt;
+                if (state.messageTimer <= 0) messageBox.classList.add('hidden');
+            }
+
+            // むせ（警告）エフェクト更新
+            for (let i = state.alertBubbles.length - 1; i >= 0; i--) {
+                let b = state.alertBubbles[i];
+                b.life -= dt;
+                b.y -= dt * 20; // ゆっくり上へ
+                if (b.life <= 0) state.alertBubbles.splice(i, 1);
+            }
+
+            if (state.phase === 'CLEAR') return;
+
+            if (state.phase === 'CHOKE') {
+                state.pushSpeed = 0;
+                state.smoothSpeed = 0;
+                state.speedNorm = 0;
+                state.chokeTimer -= dt;
+                if (state.chokeTimer <= 0) {
+                    state.phase = 'PLAY';
+                    state.babyState = 'CALM';
+                    showMessage("ミルクを一定量、注入してあげましょう", 3.0);
+                }
+                updateUI();
+                return;
+            }
+
+            // --- PLAY状態 ---
+
+            // ガス・ペダル式アクセル（押し込んでいる間だけ加速）
+            if (!pointer.isDown) state.isPushing = false; // 画面外離し対応
+
+            if (state.isPushing) {
+                // 押し込んでいると徐々にスピードが上がる (速度をゆっくりに調整)
+                state.smoothSpeed += 150 * dt;
+            } else {
+                // 離すとスピードがスッと落ちる (減速もゆっくりに調整)
+                state.smoothSpeed -= 300 * dt;
+            }
+
+            // スムージング制限と正規化
+            state.smoothSpeed = Math.min(state.SPEED_MAX, Math.max(0, state.smoothSpeed));
+            state.pushSpeed = state.smoothSpeed; // 描画等互換性
+            state.speedNorm = state.smoothSpeed / state.SPEED_MAX;
+
+            // ノイズや極端な低速のカット
+            if (state.speedNorm < 0.05) {
+                state.zone = "NONE";
+            } else if (state.speedNorm <= state.GREEN_MAX) {
+                state.zone = "GREEN";
+            } else if (state.speedNorm <= state.YELLOW_MAX) {
+                state.zone = "YELLOW";
+            } else {
+                state.zone = "RED";
+            }
+
+            // 前兆段階化ロジック (アイデア②)
+            if (state.zone === "NONE" || state.zone === "GREEN") {
+                state.babyState = "CALM";
+                state.redTime = 0;
+            } else if (state.zone === "YELLOW") {
+                state.babyState = "WARNING";
+                state.redTime = 0;
+            } else if (state.zone === "RED") {
+                state.babyState = "DANGER";
+                state.redTime += dt;
+            }
+
+            // むせ判定
+            if (state.redTime > 0.4 && state.phase === "PLAY") {
+                state.phase = "CHOKE";
+                state.babyState = "CHOKE";
+                state.chokeCount += 1;
+                state.progress = Math.max(state.progress - 2, 0); // ペナルティ
+                state.chokeTimer = 1.5;
+                state.greenStayTime = 0;
+                state.smoothSpeed = 0;
+
+                showMessage("注入が速すぎます！\nむせてしまいました。");
+                state.alertBubbles.push({ x: 500 + Math.random() * 100, y: 300 - Math.random() * 50, life: 1.5, maxLife: 1.5 });
+                state.alertBubbles.push({ x: 650 + Math.random() * 100, y: 250 - Math.random() * 50, life: 1.5, maxLife: 1.5 });
+            }
+
+            // 緑・黄・赤ごとの進捗加算ロジック (アイデア①改: 進捗スピード依存)
+            // 下に行けば行くほど（speedNorm大）ミルク減少速度(進捗)が速くなる
+            if (state.phase === "PLAY") {
+                // 基本の増加ペースを算出し、speedNorm に応じて加速させる
+                // 例: speedNorm が 1.0 に近いほど multiplier が大きくなる
+                let progressMultiplier = 1.0 + (state.speedNorm * 3.0); // 最大4倍速
+
+                // ゾーンに関わらず、押し込んでいる速さに応じて進捗が進む（下に行くほど速い）
+                if (state.zone !== "NONE") {
+                    state.greenStayTime += dt * progressMultiplier;
+                } else {
+                    state.greenStayTime = 0;
+                }
+            }
+
+            // greenStayTime（内部的な進捗蓄積値）が 1.2 を超えるごとに実際の進捗を1進める
+            if (state.greenStayTime >= 1.2) {
+                state.progress += 1;
+                state.greenStayTime -= 1.2; // 余剰分は持ち越し
+            }
+
+            // Update milk and plunger pos
+            if (state.progress > state.maxProgress) state.progress = state.maxProgress;
+            // 20の進捗ステップでミルク100を消費（1ステップ = 5%）
+            state.milk = 100 - (state.progress * 5);
+            if (state.milk < 0) state.milk = 0;
+            state.pushPos = (100 - state.milk) / 100;
+
+            // クリア判定
+            if (state.progress >= state.maxProgress && state.phase === "PLAY") {
+                state.phase = 'CLEAR';
+                state.babyState = 'CALM';
+                state.pushPos = 1.0;
+                state.milk = 0;
+
+                // 少し遅れてエンド画面を表示する
+                setTimeout(() => {
+                    messageBox.classList.add('hidden');
+                    const endScreen = document.getElementById('end-screen');
+                    endScreen.classList.add('visible');
+
+                    // エンド画面を表示してから3秒後に自動的にゲーム終了処理を呼ぶ
+                    setTimeout(() => {
+                        // TyranoBuilderのiframe内で実行されている場合を考慮し、parentも確認する
+                        if (typeof window.onPhase2Complete === 'function') {
+                            window.onPhase2Complete();
+                        } else if (window.parent && typeof window.parent.onPhase2Complete === 'function') {
+                            window.parent.onPhase2Complete();
+                        } else if (window.parent && window.parent.tyrano) {
+                            // TyranoBuilderの標準的なジャンプ処理のフォールバック
+                            console.log('Sending completion to TyranoBuilder');
+                            window.parent.postMessage('phase2Complete', '*');
+                        } else {
+                            console.log('Game Complete');
+                        }
+                    }, 3000);
+                }, 1000); // 1秒遅延
+            }
+
+            updateUI();
+        }
+
+        function draw(timestamp) {
+            ctx.clearRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+
+            // 1. 背景 ----------------------------------------------------
+            if (assets.bg.loaded) {
+                const imgAspect = assets.bg.img.width / assets.bg.img.height;
+                const canvasAspect = BASE_WIDTH / BASE_HEIGHT;
+                let drawW = BASE_WIDTH, drawH = BASE_HEIGHT, drawX = 0, drawY = 0;
+                if (imgAspect > canvasAspect) { drawH = BASE_HEIGHT; drawW = drawH * imgAspect; drawX = (BASE_WIDTH - drawW) / 2; }
+                else { drawW = BASE_WIDTH; drawH = drawW / imgAspect; drawY = (BASE_HEIGHT - drawH) / 2; }
+                ctx.drawImage(assets.bg.img, drawX, drawY, drawW, drawH);
+            } else {
+                // 背景フォールバック (壁とベッド)
+                ctx.fillStyle = '#fdf6e3'; ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+                ctx.fillStyle = '#eaf0f6'; ctx.beginPath(); ctx.ellipse(BASE_WIDTH / 2, BASE_HEIGHT, BASE_WIDTH * 0.6, 250, 0, 0, Math.PI * 2); ctx.fill();
+            }
+
+            // むせエフェクト（警告）
+            state.alertBubbles.forEach(b => {
+                const alpha = Math.min(1.0, b.life / (b.maxLife * 0.5));
+                ctx.globalAlpha = alpha;
+                if (assets.alert.loaded) {
+                    ctx.drawImage(assets.alert.img, b.x - 30, b.y - 30, 60, 60);
+                } else {
+                    // 警告アイコン フォールバック (赤枠の△の中に！)
+                    ctx.fillStyle = '#e74c3c';
+                    ctx.beginPath();
+                    ctx.moveTo(b.x, b.y - 40);
+                    ctx.lineTo(b.x + 35, b.y + 20);
+                    ctx.lineTo(b.x - 35, b.y + 20);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.font = "bold 40px sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.fillText("!", b.x, b.y + 15);
+                }
+                ctx.globalAlpha = 1.0;
+            });
+
+            // 2. メーター群 (右側) ----------------------------------------
+            // シリンジを左側、ゲージを右側に配置
+            const syrX = 900;
+            const syrY = 260; // 画面外に出ないようにY座標を少し下げる
+
+            // --- シリンジ (左側) ---
+            drawSyringe(syrX, syrY);
+
+            // --- 注入速度ゲージ (右側) ---
+            const meterX = 1100;
+            const meterY = 150;
+            drawSpeedGauge(meterX, meterY);
+        }
+
+        function drawSpeedGauge(x, y) {
+            const gw = 60;
+            const gh = 400;
+
+            // 背景枠
+            ctx.fillStyle = '#eee';
+            ctx.beginPath(); ctx.roundRect(x, y, gw, gh, 10); ctx.fill();
+            ctx.strokeStyle = '#ccc'; ctx.lineWidth = 3; ctx.stroke();
+
+            // 指定: 上側を緑に、下側を赤になるように
+            // GREEN: 0 ~ 0.55 (55%)
+            // YELLOW: 0.55 ~ 0.75 (20%)
+            // RED: 0.75 ~ 1.0 (25%)
+
+            const zoneGrnH = gh * state.GREEN_MAX;
+            const zoneYelH = gh * (state.YELLOW_MAX - state.GREEN_MAX);
+            const zoneRedH = gh * (1.0 - state.YELLOW_MAX);
+
+            // GREEN zone (Top)
+            // 待機帯(0..0.05)もGREENとして描画
+            ctx.fillStyle = 'rgba(46, 204, 113, 0.7)'; // 緑
+            ctx.fillRect(x + 5, y + 5, gw - 10, zoneGrnH);
+
+            // YELLOW zone (Middle)
+            ctx.fillStyle = 'rgba(241, 196, 15, 0.7)'; // 黄色
+            ctx.fillRect(x + 5, y + 5 + zoneGrnH, gw - 10, zoneYelH);
+
+            // RED zone (Bottom)
+            ctx.fillStyle = 'rgba(231, 76, 60, 0.7)'; // 赤
+            ctx.fillRect(x + 5, y + 5 + zoneGrnH + zoneYelH, gw - 10, zoneRedH);
+
+            // バーの指標（現在の速度位置）
+            // 押し込む動きに合わせるため、速いほど下へ行く
+            // speedNorm: 0 (上) 〜 1 (下)
+            const indicatorY = y + 5 + (gh - 10) * state.speedNorm;
+
+            // 指標を描画 (横線 + 三角矢印)
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.moveTo(x - 15, indicatorY);
+            ctx.lineTo(x, indicatorY - 10);
+            ctx.lineTo(x, indicatorY + 10);
+            ctx.fill();
+
+            ctx.fillStyle = '#fff';
+            ctx.beginPath(); ctx.roundRect(x, indicatorY - 5, gw, 10, 5); ctx.fill();
+            ctx.strokeStyle = '#333'; ctx.lineWidth = 2; ctx.stroke();
+
+            // ラベル
+            ctx.fillStyle = '#fff';
+            ctx.font = "bold 24px sans-serif";
+            // 文字の枠取り
+            ctx.lineWidth = 4;
+            ctx.strokeText("速度", x + gw / 2, y - 20);
+            ctx.fillText("速度", x + gw / 2, y - 20);
+        }
+
+        function drawSyringe(x, y) {
+            const scale = 0.8; // シリンジと手を全体的に縮小
+
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(scale, scale);
+            ctx.translate(-x, -y);
+
+            const bodyW = 90;
+            const bodyH = 260; // シリンジ本体を少し短く
+
+            // state.pushPos (0~1) に応じてプランジャー下がり、ミルクが減る
+            const maxTravel = bodyH - 20; // 押し込める最大ピクセル
+            const plungerTravel = maxTravel * state.pushPos;
+
+            // プランジャー (押す棒)
+            const plunW = 30;
+            const plunTopY = y - 260 + plungerTravel;
+            const plunBottomY = y + plungerTravel;
+
+            const handleX = x + (bodyW - plunW) / 2 - 20;
+            const handleY = plunTopY - 15;
+            const handleW = plunW + 40;
+            const handleH = 20;
+
+            // 操作用ヒットエリアの更新
+            const rawX = handleX - 40;
+            const rawY = handleY - 40;
+            const rawW = handleW + 80;
+            const rawH = handleH + 80;
+            state.hitRect = {
+                x: x + (rawX - x) * scale,
+                y: y + (rawY - y) * scale,
+                w: rawW * scale,
+                h: rawH * scale
+            };
+
+            // 押す場所をハイライト（点滅・矢印）
+            if (state.phase === 'PLAY' && !state.isPushing) {
+                state.glowTime = (state.glowTime || 0) + 0.1;
+                const glowAlpha = (Math.sin(state.glowTime) + 1) / 2 * 0.8 + 0.2; // 0.2 ~ 1.0
+                ctx.save();
+                ctx.shadowColor = '#f1c40f'; // 黄色の光
+                ctx.shadowBlur = 20;
+                ctx.strokeStyle = `rgba(241, 196, 15, ${glowAlpha})`;
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                ctx.roundRect(handleX - 8, handleY - 8, handleW + 16, handleH + 16, 8);
+                ctx.stroke();
+
+                // 「ここを押す」アピールの下向き矢印
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = `rgba(241, 196, 15, ${glowAlpha})`;
+                ctx.beginPath();
+                ctx.moveTo(handleX + handleW / 2, handleY - 25);
+                ctx.lineTo(handleX + handleW / 2 - 15, handleY - 45);
+                ctx.lineTo(handleX + handleW / 2 + 15, handleY - 45);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // プランジャーの棒
+            ctx.fillStyle = '#e2e2e2'; // 棒の色
+            ctx.fillRect(x + (bodyW - plunW) / 2, plunTopY, plunW, plunBottomY - plunTopY);
+
+            // 持ち手本体
+            ctx.fillStyle = state.isPushing ? '#999' : '#ccc'; // 押しているときは少し暗く
+            ctx.beginPath(); ctx.roundRect(handleX, handleY, handleW, handleH, 5); ctx.fill();
+            ctx.stroke();
+
+            // 押し子の先端 (黒いゴムの部分)
+            ctx.fillStyle = '#333';
+            ctx.beginPath(); ctx.roundRect(x + 5, plunBottomY, bodyW - 10, 20, 3); ctx.fill();
+
+            // 中のミルク (プランジャーの下〜ボディの底)
+            const milkTop = plunBottomY + 20;
+            const milkBottom = y + bodyH;
+            if (milkTop < milkBottom) {
+                ctx.fillStyle = '#fffaca'; // ミルク色
+                ctx.fillRect(x + 5, milkTop, bodyW - 10, milkBottom - milkTop);
+
+                // 簡易陰影
+                ctx.fillStyle = 'rgba(0,0,0,0.05)';
+                ctx.fillRect(x + bodyW - 20, milkTop, 15, milkBottom - milkTop);
+            }
+
+            // シリンジ本体 (外側の透明ケース)
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+            ctx.beginPath(); ctx.roundRect(x, y, bodyW, bodyH, 10); ctx.fill();
+            ctx.strokeStyle = '#99b3cC'; ctx.lineWidth = 4; ctx.stroke();
+
+            // 目盛り
+            ctx.fillStyle = '#666';
+            for (let i = 1; i <= 10; i++) {
+                let lineY = y + i * (bodyH / 10);
+                ctx.fillRect(x, lineY, i % 2 === 0 ? 25 : 15, 2);
+            }
+
+            // シリンジの注ぎ口 (一番下)
+            ctx.fillStyle = '#99b3cC';
+            ctx.fillRect(x + bodyW / 2 - 10, y + bodyH, 20, 25);
+            ctx.beginPath(); ctx.arc(x + bodyW / 2, y + bodyH + 25, 10, 0, Math.PI); ctx.fill();
+
+            // ここで一旦リストアし、チューブはスクリーン座標系で描く
+            ctx.restore();
+
+            // チューブへの接続線
+            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+
+            // 注ぎ口から左の赤ちゃんへの線
+            const startX = x + (bodyW / 2) * scale;
+            const startY = y + (bodyH + 35) * scale;
+            const ctrlX = x + (bodyW / 2) * scale;
+            const ctrlY = y + (bodyH + 100) * scale;
+
+            ctx.moveTo(startX, startY);
+            ctx.quadraticCurveTo(ctrlX, ctrlY, 550, 480); // 背景赤ちゃんの顔付近へ繋がるように調整
+            ctx.stroke();
+
+            // 再度指を描くためにスケール環境を作る
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(scale, scale);
+            ctx.translate(-x, -y);
+
+            // 指の絵（簡易右手のイラスト表現、プランジャーとシリンジを握っている感じ）
+            // y位置はシリンジボディの中腹あたり
+            const handY = y + 100;
+            ctx.fillStyle = '#fce5cd';
+
+            // 親指（左側）
+            ctx.beginPath(); ctx.ellipse(x - 20, handY + 50, 40, 20, Math.PI * -0.1, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = '#d4a373'; ctx.lineWidth = 2; ctx.stroke();
+
+            // 他の指（右側）
+            for (let f = 0; f < 3; f++) {
+                ctx.beginPath(); ctx.ellipse(x + bodyW + 20, handY + 20 + f * 30, 45, 15, Math.PI * 0.05, 0, Math.PI * 2); ctx.fill();
+                ctx.stroke();
+            }
+
+            ctx.restore();
+        }
+
+        // 今回は終了画面（よくがんばりました）でゲーム自体が完結するため、
+        // 念のためエンド画面全体をクリックしても終了できるようにしておく
+        const endScreen = document.getElementById('end-screen');
+        endScreen.addEventListener('click', () => {
+            if (typeof window.onPhase2Complete === 'function') {
+                window.onPhase2Complete();
+            } else if (window.parent && typeof window.parent.onPhase2Complete === 'function') {
+                window.parent.onPhase2Complete();
+            } else if (window.parent && window.parent.tyrano) {
+                // TyranoBuilderの標準的なジャンプ処理のフォールバック
+                console.log('Sending completion to TyranoBuilder');
+                window.parent.postMessage('phase2Complete', '*');
+            } else {
+                console.log('Game Complete via Click');
+            }
+        });
+    </script>
+</body>
+
+</html>

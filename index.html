@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>哺乳ミニゲーム（フェーズ1）</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            touch-action: none;
+            /* 防止ブラウザのスクロール */
+            font-family: 'Hiragino Maru Gothic ProN', 'Meiryo', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            background-color: #fff;
+            width: 1280px;
+            height: 720px;
+            transform-origin: center center;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* UIレイヤー */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* マウスイベントをCanvasに透過させる */
+        }
+
+        #try-counter {
+            position: absolute;
+            top: 20px;
+            right: 40px;
+            background: #4a75a7;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 30px;
+            font-size: 28px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            border: 3px solid #fff;
+        }
+
+        #message-box {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 800px;
+            background: linear-gradient(to bottom, #f2a65a, #d96f32);
+            border: 5px solid #fff;
+            border-radius: 40px;
+            padding: 20px 40px;
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            text-align: center;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.5);
+            transition: opacity 0.3s, transform 0.3s;
+            white-space: pre-line;
+            line-height: 1.4;
+        }
+
+        #message-box.hidden {
+            opacity: 0;
+            transform: translateX(-50%) translateY(20px);
+        }
+
+        #next-button {
+            position: absolute;
+            bottom: 40px;
+            right: 40px;
+            background: linear-gradient(to bottom, #5b8ad2, #395c96);
+            border: 4px solid #fff;
+            border-radius: 20px;
+            padding: 15px 50px;
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+            pointer-events: auto;
+            /* ボタン部分はクリック可能にする */
+            transition: transform 0.1s, filter 0.2s;
+            display: none;
+        }
+
+        #next-button:active {
+            transform: scale(0.95);
+        }
+
+        #next-button:hover {
+            filter: brightness(1.1);
+        }
+
+        #start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 10;
+            pointer-events: auto;
+            /* クリック可能にする */
+        }
+
+        #start-screen p {
+            font-size: 40px;
+            font-weight: bold;
+            line-height: 1.6;
+            margin-bottom: 40px;
+            text-align: center;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        #start-btn {
+            background: linear-gradient(to bottom, #f2a65a, #d96f32);
+            border: 4px solid #fff;
+            border-radius: 30px;
+            padding: 15px 60px;
+            color: white;
+            font-size: 36px;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+            transition: transform 0.1s, filter 0.2s;
+        }
+
+        #start-btn:active {
+            transform: scale(0.95);
+        }
+
+        #start-btn:hover {
+            filter: brightness(1.1);
+        }
+
+        #debug-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            color: #0f0;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            pointer-events: none;
+            display: none;
+            /* デバッグ時は block に */
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+        <div id="ui-layer">
+            <div id="try-counter">トライ 1 / 3</div>
+            <div id="message-box" class="hidden"></div>
+            <button id="next-button">次へ</button>
+            <div id="start-screen">
+                <p>ミルクを飲ませよう。<br>全部飲めなかったら残りは注入しよう。</p>
+                <button id="start-btn">スタート</button>
+            </div>
+            <div id="debug-panel"></div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ScaleManager: ウィンドウサイズに合わせて1280x720のアスペクト比を維持して拡大縮小
+         */
+        const container = document.getElementById('game-container');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // UI要素の取得
+        const messageBox = document.getElementById('message-box');
+        const tryCounter = document.getElementById('try-counter');
+        const nextButton = document.getElementById('next-button');
+        const debugPanel = document.getElementById('debug-panel');
+
+        const BASE_WIDTH = 1280;
+        const BASE_HEIGHT = 720;
+        let currentScale = 1;
+
+        function resize() {
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+
+            const scaleX = windowWidth / BASE_WIDTH;
+            const scaleY = windowHeight / BASE_HEIGHT;
+
+            currentScale = Math.min(scaleX, scaleY);
+            container.style.transform = `scale(${currentScale})`;
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        /**
+         * 入力正規化: スケールを考慮したCanvas上の座標を取得
+         */
+        const pointer = { x: 0, y: 0, isDown: false, worldX: 0, worldY: 0 };
+
+        function updatePointer(e) {
+            let clientX = e.clientX;
+            let clientY = e.clientY;
+
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            }
+
+            const rect = container.getBoundingClientRect();
+            // コンテナの左上からの相対座標をスケールで割ることで、1280x720座標系内の位置を得る
+            pointer.worldX = (clientX - rect.left) / currentScale;
+            pointer.worldY = (clientY - rect.top) / currentScale;
+            pointer.x = clientX;
+            pointer.y = clientY;
+        }
+
+        window.addEventListener('mousedown', (e) => {
+            if (e.target === nextButton) return;
+            pointer.isDown = true;
+            updatePointer(e);
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (pointer.isDown) updatePointer(e);
+        });
+        window.addEventListener('mouseup', () => { pointer.isDown = false; });
+
+        // タッチデバイストラブルを防ぐため passive: false
+        window.addEventListener('touchstart', (e) => {
+            if (e.target === nextButton) return;
+            pointer.isDown = true;
+            updatePointer(e);
+            // もしキャンバス上ならデフォルトのスクロール動作等を防ぐ
+            if (e.target === canvas) e.preventDefault();
+        }, { passive: false });
+        window.addEventListener('touchmove', (e) => {
+            if (pointer.isDown) {
+                updatePointer(e);
+                if (e.target === canvas) e.preventDefault();
+            }
+        }, { passive: false });
+        window.addEventListener('touchend', () => { pointer.isDown = false; });
+
+        /**
+         * アセットパス設定（ファイルが存在しない場合は自動でフォールバック描画になる）
+         */
+        const assetInfos = {
+            bg: 'assets/background.jpg',                     // 背景画像
+            bottle: 'assets/bottle.png',             // 哺乳瓶（中心付近で回転させる想定）
+            stamina_frame: 'assets/stamina_bar.png', // スタミナゲージの枠（透過）
+            stamina_fill: 'assets/stamina_fill.png', // スタミナゲージの中身
+            heart: 'assets/heart_icon.png',          // 心臓アイコン
+            milk_panel: 'assets/milk_gauge.png',     // ミルク残量ゲージパネル
+            bubble: 'assets/speech_bubble.png'       // 吹き出し
+        };
+
+        const assets = {};
+        let loadedCount = 0;
+        const totalAssets = Object.keys(assetInfos).length;
+
+        // 画像のプリロード
+        Object.keys(assetInfos).forEach(key => {
+            const img = new Image();
+            img.src = assetInfos[key];
+            img.onload = () => {
+                assets[key] = { img: img, loaded: true };
+                checkLoad();
+            };
+            img.onerror = () => {
+                console.log(`Failed to load asset: ${assetInfos[key]}. Using fallback.`);
+                assets[key] = { img: null, loaded: false };
+                checkLoad();
+            };
+        });
+
+        function checkLoad() {
+            loadedCount++;
+            if (loadedCount === totalAssets) {
+                // 自動でinitGameは呼ばず、スタートスクリーンのボタン入力を待つ
+                const startBtn = document.getElementById('start-btn');
+                const startScreen = document.getElementById('start-screen');
+                startBtn.addEventListener('click', () => {
+                    startScreen.style.display = 'none';
+                    initGame();
+                });
+            }
+        }
+
+        /**
+         * ゲームロジック / 状態
+         */
+        let lastTime = performance.now();
+        let isGameRunning = false;
+
+        const state = {
+            tryIndex: 1,
+            maxTries: 3,
+            milk: 100,      // 0〜100
+            stamina: 100,   // 0〜100
+            phase: 'FEEDING', // "FEEDING", "REST", "TRY_END", "END"
+
+            tilt: 0,        // -90(上向き) 〜 +90(下向き)。哺乳瓶の角度。0が水平想定。
+            targetTilt: 0,  // 滑らかに動かすためのターゲット角度
+            bottlePivot: { x: 550, y: 350 }, // ボトルの回転軸（赤ちゃんの口元）を背景画像に合わせて調整
+
+            // パラメータ調整用
+            milkRate: 45,          // 1秒に減る最大ミルク量 (元15の3倍)
+            staminaDrain: 75,      // 1秒に減る最大スタミナ (元25の3倍)
+            recoverRate: 60,       // 1秒に回復するスタミナ(REST時) (元20の3倍)
+
+            messageTimer: 0,       // メッセージ表示時間のカウンタ
+            tryTransitionTimer: 0,
+
+            // エフェクト用
+            sleepBubbles: []
+        };
+
+        function showMessage(text, duration = 0) {
+            messageBox.innerText = text;
+            messageBox.classList.remove('hidden');
+            if (duration > 0) {
+                state.messageTimer = duration;
+            } else {
+                state.messageTimer = -1; // -1 means sticky (keep showing)
+            }
+        }
+
+        function hideMessage() {
+            messageBox.classList.add('hidden');
+        }
+
+        function initGame() {
+            state.tryIndex = 1;
+            state.milk = 100;
+            state.stamina = 100;
+            state.phase = 'FEEDING';
+            state.tilt = 0;
+            state.targetTilt = 0;
+
+            updateUI();
+            isGameRunning = true;
+            lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateUI() {
+            tryCounter.innerText = `トライ ${state.tryIndex} / ${state.maxTries}`;
+
+            // デバッグ情報
+            debugPanel.innerHTML = `
+            Phase: ${state.phase}<br>
+            Try: ${state.tryIndex}<br>
+            Milk: ${Math.floor(state.milk)}<br>
+            Stamina: ${Math.floor(state.stamina)}<br>
+            Tilt: ${Math.floor(state.tilt)}<br>
+        `;
+        }
+
+        function gameLoop(timestamp) {
+            if (!isGameRunning) return;
+
+            const dt = (timestamp - lastTime) / 1000; // 秒単位のデルタタイム
+            lastTime = timestamp;
+
+            update(dt);
+            draw();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function update(dt) {
+            // --- メッセージタイマー処理 ---
+            if (state.messageTimer > 0) {
+                state.messageTimer -= dt;
+                if (state.messageTimer <= 0) {
+                    hideMessage();
+                }
+            }
+
+            // --- Zzzエフェクトの発生と更新 ---
+            if (state.phase === 'REST') {
+                if (Math.random() < dt * 2) { // 1秒間に約2個発生
+                    state.sleepBubbles.push({
+                        x: state.bottlePivot.x + 100 + Math.random() * 50,
+                        y: state.bottlePivot.y - 120 - Math.random() * 40,
+                        life: 2.0,
+                        maxLife: 2.0,
+                        phase: Math.random() * Math.PI * 2
+                    });
+                }
+            }
+            for (let i = state.sleepBubbles.length - 1; i >= 0; i--) {
+                let b = state.sleepBubbles[i];
+                b.life -= dt;
+                b.y -= dt * 40; // 上へ昇る
+                b.x += Math.sin(timestamp / 300 + b.phase) * 1.0; // 揺れる
+                if (b.life <= 0) {
+                    state.sleepBubbles.splice(i, 1);
+                }
+            }
+
+            // --- フェーズごとのロジック ---
+            if (state.phase === 'END') {
+                // ボトルを下に下げる（手放した感じ）
+                state.tilt += (-20 - state.tilt) * 5 * dt;
+
+                // 次のフェーズへの自動遷移タイマー
+                if (state.endTransitionTimer === undefined) {
+                    state.endTransitionTimer = 3.0; // 3秒後に遷移
+                } else if (state.endTransitionTimer > 0) {
+                    state.endTransitionTimer -= dt;
+                    if (state.endTransitionTimer <= 0) {
+                        window.location.href = 'phase2.html';
+                    }
+                }
+
+                updateUI();
+                return; // 終了時はこれ以上パラメータ変動なし
+            }
+
+            if (state.phase === 'TRY_END') {
+                state.tilt += (0 - state.tilt) * 10 * dt; // ボトルを戻す
+                state.tryTransitionTimer -= dt;
+                if (state.tryTransitionTimer <= 0) {
+                    // 次のトライへ
+                    state.tryIndex++;
+                    state.phase = 'FEEDING';
+                    state.stamina = 100;
+                    updateUI();
+                }
+                return;
+            }
+
+            // --- ボトルの操作（ドラッグによる角度計算） ---
+            if (pointer.isDown && state.phase === 'FEEDING') {
+                // 哺乳瓶のピボットから上方向へのドラッグ量で傾きを決める簡易方式
+                let dragY = pointer.worldY - state.bottlePivot.y;
+
+                // 下方向へのドラッグ(-dragY が負)を無視し、上方向へのドラッグ(-dragY が正)のみで傾くようにする
+                // 持ち上げる動き：worldYが小さい(上に行く)ほど、-dragYはプラスになり、targetTiltがプラスになる
+                state.targetTilt = Math.max(-10, Math.min(80, -dragY * 0.4));
+            } else {
+                // 離している時は元の角度(少し下がった-10度くらい)に戻る
+                state.targetTilt = -10;
+            }
+
+            // なめらかに傾きを反映
+            state.tilt += (state.targetTilt - state.tilt) * 12 * dt;
+
+            // --- 哺乳ロジック ---
+            if (state.phase === 'FEEDING') {
+                // 30度以上傾いたら「飲ませている」と判定。最大60度。
+                let feedingPower = 0;
+                if (state.tilt >= 30) {
+                    feedingPower = Math.min(1.0, (state.tilt - 30) / 30);
+                }
+
+                // ミルクとスタミナの減少
+                if (feedingPower > 0) {
+                    // Try 3 は飲む力が落ちていてなかなか減らない
+                    let fatigueFactor = 1.0;
+                    if (state.tryIndex === 3) fatigueFactor = 0.2;
+
+                    state.milk -= dt * state.milkRate * feedingPower * fatigueFactor;
+                    state.stamina -= dt * state.staminaDrain * feedingPower;
+
+                    if (state.milk < 0) state.milk = 0;
+                    if (state.stamina < 0) state.stamina = 0;
+                }
+
+                // 疲れた（スタミナ0）時の判定
+                if (state.stamina <= 0) {
+                    state.phase = 'REST';
+                    showMessage("休憩中…");
+                }
+
+                // トライ進行の判定
+                if (state.tryIndex === 1 && state.milk <= 70) {
+                    state.phase = 'TRY_END';
+                    state.tryTransitionTimer = 3.0;
+                    showMessage("少し飲めたね！", 3.0);
+                } else if (state.tryIndex === 2 && state.milk <= 40) {
+                    state.phase = 'TRY_END';
+                    state.tryTransitionTimer = 3.0;
+                    showMessage("あと半分くらいかな？", 3.0);
+                } else if (state.tryIndex === 3) {
+                    // トライ3での終了判定
+                    // ミルクがなかなか減らず、一定量減るか、再度スタミナが尽きたら終了とする
+                    if (state.milk <= 30 || (state.stamina <= 0 && state.milk <= 35)) {
+                        state.phase = 'END';
+                        showMessage("なかなか飲まなくなってきた…\n経管栄養に切り替えよう");
+                        // 次へボタンは不要になったため表示しない
+                        // nextButton.style.display = 'block';
+                    }
+                }
+            } else if (state.phase === 'REST') {
+                // 休憩中はスタミナが回復する
+                state.stamina += dt * state.recoverRate;
+                if (state.stamina >= 100) state.stamina = 100;
+
+                // 60以上回復したら自動的に再開
+                if (state.stamina >= 60) {
+                    state.phase = 'FEEDING';
+                    hideMessage();
+                }
+            }
+
+            updateUI();
+        }
+
+        /**
+         * 回転を加味した画像/図形の描画ヘルパー
+         */
+        function drawRotated(imgObj, x, y, dx, dy, angle, fallbackFunc) {
+            ctx.save();
+            ctx.translate(x, y);
+            // 今回は ボトルが水平の時を角度0として、時計回りに下がるのを正とする
+            // 哺乳瓶が赤ちゃん口にくわえられているとき、右下がりの角度を想定（添付画像を参考）
+            ctx.rotate(angle * Math.PI / 180);
+
+            if (imgObj && imgObj.loaded) {
+                ctx.drawImage(imgObj.img, dx, dy);
+            } else if (fallbackFunc) {
+                fallbackFunc(ctx);
+            }
+            ctx.restore();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+
+            // 1. 背景 ----------------------------------------------------
+            if (assets.bg.loaded) {
+                // アスペクト比を保って中央配置（Cover）
+                const imgAspect = assets.bg.img.width / assets.bg.img.height;
+                const canvasAspect = BASE_WIDTH / BASE_HEIGHT;
+                let drawW = BASE_WIDTH;
+                let drawH = BASE_HEIGHT;
+                let drawX = 0;
+                let drawY = 0;
+
+                if (imgAspect > canvasAspect) {
+                    drawH = BASE_HEIGHT;
+                    drawW = drawH * imgAspect;
+                    drawX = (BASE_WIDTH - drawW) / 2;
+                } else {
+                    drawW = BASE_WIDTH;
+                    drawH = drawW / imgAspect;
+                    drawY = (BASE_HEIGHT - drawH) / 2;
+                }
+                ctx.drawImage(assets.bg.img, drawX, drawY, drawW, drawH);
+            } else {
+                // 背景フォールバック: 部屋とベッドの表現
+                ctx.fillStyle = '#fdf6e3'; // 壁
+                ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+                ctx.fillStyle = '#eaf0f6'; // ベッドシーツ
+                ctx.beginPath();
+                ctx.ellipse(BASE_WIDTH / 2, BASE_HEIGHT, BASE_WIDTH * 0.6, 250, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Zzz の泡（休憩時） -------------------------------------------
+            ctx.font = "bold 40px 'Hiragino Maru Gothic ProN', sans-serif";
+            ctx.fillStyle = '#395c96';
+            state.sleepBubbles.forEach(b => {
+                ctx.globalAlpha = Math.min(1.0, b.life / (b.maxLife * 0.8));
+                ctx.fillText("Z", b.x, b.y);
+            });
+            ctx.globalAlpha = 1.0;
+
+            // 2. 哺乳瓶 --------------------------------------------------
+            const pivotX = state.bottlePivot.x;
+            const pivotY = state.bottlePivot.y;
+
+            // 持ち上げる動きに合わせる
+            // tilt がプラスに増える（持ち上げる）と、ボトルのお尻が上がるようにする（時計回り＝正の回転）
+            let visualAngle = state.tilt;
+
+            // 描画位置オフセット（ピボットである飲み口の先端を基準に、ボトルの位置をずらす）
+            // 左向きのボトルとして描く： x方向に左へオフセット
+            const bdx = -250;
+            const bdy = -60;
+
+            drawRotated(assets.bottle, pivotX, pivotY, bdx, bdy, visualAngle, (context) => {
+                // ボトル画像のフォールバック描画
+                // 今回のピボットは (0,0)、そこがちょうど乳首の先端になるように描画する
+                const bodyW = 200;
+                const bodyH = 80;
+                const bodyX = -250; // ピボットから左へ250px
+                const bodyY = -40;
+
+                // ボトル本体
+                context.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                context.strokeStyle = '#a6b8c7';
+                context.lineWidth = 4;
+                context.beginPath();
+                context.roundRect(bodyX, bodyY, bodyW, bodyH, 15);
+                context.fill();
+                context.stroke();
+
+                // ふた部分（青）
+                context.fillStyle = '#5b8ad2';
+                context.fillRect(bodyX + bodyW, bodyY - 5, 20, bodyH + 10);
+
+                // 乳首の中間部分（黄色）
+                context.fillStyle = '#f5c366';
+                context.beginPath();
+                context.moveTo(bodyX + bodyW + 20, bodyY);
+                context.lineTo(bodyX + bodyW + 40, bodyY + 20);
+                context.lineTo(bodyX + bodyW + 40, bodyY + 60);
+                context.lineTo(bodyX + bodyW + 20, bodyY + bodyH);
+                context.fill();
+
+                // 乳首の先端（口に入る部分） -> これが(0,0)付近に来る
+                context.beginPath();
+                context.arc(-10, 0, 15, Math.PI * 1.5, Math.PI * 0.5);
+                context.fill();
+
+                // ミルクの残量描画 (シンプル版)
+                // tiltに応じて水面を水平に保つのは高度な描画パスが必要なので、簡易的に残量で幅を減らす
+                const milkRatio = state.milk / 100;
+                context.fillStyle = '#fffaca';
+                context.beginPath();
+
+                // 底側から残量分を描画（bodyXが一番底側）
+                const milkW = (bodyW - 10) * milkRatio;
+                context.roundRect(bodyX + 5, bodyY + 5, milkW, bodyH - 10, 10);
+                context.fill();
+
+                // メモリ
+                context.fillStyle = '#999';
+                for (let i = 1; i < 5; i++) {
+                    context.fillRect(bodyX + i * (bodyW / 5), bodyY + 10, 2, 20);
+                }
+            });
+
+            // 3. スタミナゲージ (左上) --------------------------------------
+            drawStaminaGauge();
+
+            // 4. ミルクゲージ (右側) ----------------------------------------
+            drawMilkGauge();
+        }
+
+        function drawStaminaGauge() {
+            const x = 50;
+            const y = 30;
+            const w = 350;
+            const h = 50;
+
+            ctx.save();
+            if (assets.stamina_frame.loaded && assets.stamina_fill.loaded && assets.heart.loaded) {
+                // 背景枠
+                ctx.drawImage(assets.stamina_frame.img, x + 80, y, w, h);
+
+                // 中身（切り抜き表示）
+                const ratio = state.stamina / 100;
+                const fillImg = assets.stamina_fill.img;
+                if (ratio > 0) {
+                    ctx.drawImage(
+                        fillImg,
+                        0, 0, fillImg.width * ratio, fillImg.height,
+                        x + 80, y, w * ratio, h
+                    );
+                }
+
+                // 心臓アイコン
+                ctx.drawImage(assets.heart.img, x, y - 15, 90, 90);
+            } else {
+                // フォールバック
+                // ゲージ背景
+                ctx.fillStyle = '#222';
+                ctx.beginPath();
+                ctx.roundRect(x + 50, y + 5, w, h - 10, 20);
+                ctx.fill();
+                ctx.strokeStyle = '#ccc';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+
+                // ゲージ中身
+                let color = '#8dc63f'; // 緑
+                if (state.stamina < 60) color = '#ffcc00'; // 黄色
+                if (state.stamina < 30) color = '#e74c3c'; // 赤
+
+                ctx.fillStyle = color;
+                const fillW = Math.max(0, (w - 10) * (state.stamina / 100));
+                ctx.beginPath();
+                ctx.roundRect(x + 55, y + 10, fillW, h - 20, 15);
+                ctx.fill();
+
+                // アイコン
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.scale(1.5, 1.5);
+                // 簡易的なハート描画
+                ctx.translate((x + 40) / 1.5, (y + 20) / 1.5);
+                ctx.moveTo(0, 10);
+                ctx.bezierCurveTo(0, -10, -20, -10, -20, 5);
+                ctx.bezierCurveTo(-20, 20, 0, 30, 0, 35);
+                ctx.bezierCurveTo(0, 30, 20, 20, 20, 5);
+                ctx.bezierCurveTo(20, -10, 0, -10, 0, 10);
+                ctx.fill();
+                ctx.setTransform(1, 0, 0, 1, 0, 0); // リセット
+            }
+            ctx.restore();
+        }
+
+        function drawMilkGauge() {
+            const x = BASE_WIDTH - 250;
+            const y = 150;
+
+            ctx.save();
+            if (assets.milk_panel.loaded) {
+                // パネル画像の描画（画像内に目盛り等のデザインがある想定）
+                const img = assets.milk_panel.img;
+                ctx.drawImage(img, x, y);
+                // 本来はここにパネル上の残量バーやクリッピングしたミルク中身を重ねて描く処理が追加される
+                // 簡易的に上にバーを重ねる
+                const ratio = state.milk / 100;
+                ctx.fillStyle = '#fffaca';
+                const vHeight = 250;
+                const fillH = vHeight * ratio;
+                // 仮位置
+                ctx.fillRect(x + 50, y + 150 + (vHeight - fillH), 60, fillH);
+
+                ctx.fillStyle = '#333';
+                ctx.font = "bold 24px sans-serif";
+                ctx.fillText("ミルク", x + 50, y + 40);
+            } else {
+                // フォールバック
+                const gw = 180;
+                const gh = 450;
+
+                // 背景パネル（半透明の白）
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.beginPath();
+                ctx.roundRect(x, y, gw, gh, 20);
+                ctx.fill();
+                ctx.strokeStyle = '#ccc';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                ctx.fillStyle = '#395c96';
+                ctx.font = "bold 28px 'Hiragino Maru Gothic ProN', sans-serif";
+                ctx.textAlign = "center";
+                ctx.fillText("ミルク", x + gw / 2, y + 45);
+
+                // 縦長の哺乳瓶アイコン
+                const bx = x + 50;
+                const by = y + 80;
+                const bw = 80;
+                const bh = 280;
+
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.roundRect(bx, by, bw, bh, 10);
+                ctx.fill();
+                ctx.strokeStyle = '#888';
+                ctx.stroke();
+
+                // 残量表示の中身
+                const ratio = state.milk / 100;
+                ctx.fillStyle = '#fffaca';
+                const fillH = (bh - 10) * ratio;
+                ctx.beginPath();
+                ctx.roundRect(bx + 5, by + 5 + (bh - 10 - fillH), bw - 10, fillH, 5);
+                ctx.fill();
+
+                // 目盛り線
+                ctx.fillStyle = '#aaa';
+                for (let i = 1; i <= 10; i++) {
+                    ctx.fillRect(bx, by + i * (bh / 10), i % 5 === 0 ? 20 : 10, 2);
+                }
+
+                // 横の小さい残量バー表現
+                ctx.fillStyle = '#333';
+                ctx.font = "bold 22px sans-serif";
+                ctx.fillText("残量", x + 40, y + 400);
+
+                ctx.fillStyle = '#1e385c';
+                ctx.fillRect(x + 80, y + 380, 20, 40);
+                ctx.fillStyle = '#ffcc00';
+                ctx.fillRect(x + 82, y + 380 + (40 - 36 * ratio), 16, 36 * ratio);
+            }
+            ctx.restore();
+        }
+
+        // 次へボタンの遷移処理連携
+        nextButton.addEventListener('click', () => {
+            if (typeof window.onPhase1Complete === 'function') {
+                window.onPhase1Complete();
+            } else {
+                console.log('Transition to NEXT PHASE');
+                alert('次のフェーズ（フェーズ2）へ遷移します。');
+            }
+        });
+
+    </script>
+</body>
+
+</html>
