@@ -257,7 +257,8 @@
          * アセットパス設定（フォールバック対応）
          */
         const assetInfos = {
-            bg: 'assets/background.jpg',         // 背景画像
+            bg: 'assets/background.jpg',         // 背景画像（通常）
+            bg2: 'assets/background2.jpg',       // 背景画像（危険ゾーン）
             syringe: 'assets/syringe.png',      // シリンジ本体枠
             plunger: 'assets/plunger.png',      // 押し子
             alert: 'assets/alert.png',          // 警告アイコン（△！）
@@ -523,16 +524,21 @@
             ctx.clearRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
 
             // 1. 背景 ----------------------------------------------------
-            if (assets.bg.loaded) {
-                const imgAspect = assets.bg.img.width / assets.bg.img.height;
+            // 危険ゾーン(RED)またはむせ(CHOKE)中はbg2を使用
+            const isDanger = state.zone === 'RED' || state.phase === 'CHOKE';
+            const bgAsset = isDanger ? assets.bg2 : assets.bg;
+
+            if (bgAsset && bgAsset.loaded) {
+                const imgAspect = bgAsset.img.width / bgAsset.img.height;
                 const canvasAspect = BASE_WIDTH / BASE_HEIGHT;
                 let drawW = BASE_WIDTH, drawH = BASE_HEIGHT, drawX = 0, drawY = 0;
                 if (imgAspect > canvasAspect) { drawH = BASE_HEIGHT; drawW = drawH * imgAspect; drawX = (BASE_WIDTH - drawW) / 2; }
                 else { drawW = BASE_WIDTH; drawH = drawW / imgAspect; drawY = (BASE_HEIGHT - drawH) / 2; }
-                ctx.drawImage(assets.bg.img, drawX, drawY, drawW, drawH);
+                ctx.drawImage(bgAsset.img, drawX, drawY, drawW, drawH);
             } else {
                 // 背景フォールバック (壁とベッド)
-                ctx.fillStyle = '#fdf6e3'; ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
+                ctx.fillStyle = isDanger ? '#fde3e3' : '#fdf6e3';
+                ctx.fillRect(0, 0, BASE_WIDTH, BASE_HEIGHT);
                 ctx.fillStyle = '#eaf0f6'; ctx.beginPath(); ctx.ellipse(BASE_WIDTH / 2, BASE_HEIGHT, BASE_WIDTH * 0.6, 250, 0, 0, Math.PI * 2); ctx.fill();
             }
 
@@ -736,20 +742,32 @@
             ctx.restore();
 
             // チューブへの接続線
-            ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-            ctx.lineCap = 'round';
-            ctx.lineWidth = 6;
-            ctx.beginPath();
-
-            // 注ぎ口から左の赤ちゃんへの線
+            // ノズル位置（スケール済みスクリーン座標）
             const startX = x + (bodyW / 2) * scale;
             const startY = y + (bodyH + 35) * scale;
-            const ctrlX = x + (bodyW / 2) * scale;
-            const ctrlY = y + (bodyH + 100) * scale;
+            // 背景画像の胃チューブコネクター（紫色の接続部）の座標
+            const tubeEndX = 770;
+            const tubeEndY = 430;
 
+            // チューブ本体（自然な弧を描くcubic bezier）
+            ctx.strokeStyle = 'rgba(230, 230, 255, 0.85)';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
             ctx.moveTo(startX, startY);
-            ctx.quadraticCurveTo(ctrlX, ctrlY, 550, 480); // 背景赤ちゃんの顔付近へ繋がるように調整
+            // ctrl1: ノズルから真下へ垂れる / ctrl2: コネクターへ向かう手前で折り返す
+            ctx.bezierCurveTo(
+                startX, startY + 90,    // 制御点1: ノズルから下へ垂れる
+                tubeEndX + 60, tubeEndY + 80,  // 制御点2: コネクター手前でたわむ
+                tubeEndX, tubeEndY
+            );
             ctx.stroke();
+
+            // コネクター接続部の強調（小さい丸でつながり感を表現）
+            ctx.fillStyle = 'rgba(200, 200, 240, 0.9)';
+            ctx.beginPath();
+            ctx.arc(tubeEndX, tubeEndY, 6, 0, Math.PI * 2);
+            ctx.fill();
 
             // 再度指を描くためにスケール環境を作る
             ctx.save();

@@ -336,7 +336,7 @@
 
             tilt: 0,        // -90(上向き) 〜 +90(下向き)。哺乳瓶の角度。0が水平想定。
             targetTilt: 0,  // 滑らかに動かすためのターゲット角度
-            bottlePivot: { x: 550, y: 350 }, // ボトルの回転軸（赤ちゃんの口元）を背景画像に合わせて調整
+            bottlePivot: { x: 553, y: 335 }, // ボトルの回転軸（赤ちゃんの口元）を背景画像に合わせて調整
 
             // パラメータ調整用
             milkRate: 45,          // 1秒に減る最大ミルク量 (元15の3倍)
@@ -619,6 +619,7 @@
             drawRotated(assets.bottle, pivotX, pivotY, bdx, bdy, visualAngle, (context) => {
                 // ボトル画像のフォールバック描画
                 // 今回のピボットは (0,0)、そこがちょうど乳首の先端になるように描画する
+                context.scale(1.44, 1.44); // 合計44%拡大（ピボット=乳首先端を基準に拡大）
                 const bodyW = 200;
                 const bodyH = 80;
                 const bodyX = -250; // ピボットから左へ250px
@@ -806,15 +807,10 @@
                     ctx.fillRect(bx, by + i * (bh / 10), i % 5 === 0 ? 20 : 10, 2);
                 }
 
-                // 横の小さい残量バー表現
+                // 残量ラベル
                 ctx.fillStyle = '#333';
                 ctx.font = "bold 22px sans-serif";
-                ctx.fillText("残量", x + 40, y + 400);
-
-                ctx.fillStyle = '#1e385c';
-                ctx.fillRect(x + 80, y + 380, 20, 40);
-                ctx.fillStyle = '#ffcc00';
-                ctx.fillRect(x + 82, y + 380 + (40 - 36 * ratio), 16, 36 * ratio);
+                ctx.fillText("残量", x + gw / 2, y + 400);
             }
             ctx.restore();
         }
