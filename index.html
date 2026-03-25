@@ -65,29 +65,52 @@
             border: 3px solid #fff;
         }
 
+        #msg-window-bg {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 1280px;
+            height: 216px;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        #char-gif {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 450px;
+            width: auto;
+            z-index: 9;
+            pointer-events: none;
+        }
+
         #message-box {
             position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 800px;
-            background: linear-gradient(to bottom, #f2a65a, #d96f32);
-            border: 5px solid #fff;
-            border-radius: 40px;
-            padding: 20px 40px;
-            color: white;
-            font-size: 32px;
+            bottom: 0;
+            left: 0;
+            width: 1280px;
+            height: 216px;
+            box-sizing: border-box;
+            background: none;
+            border: none;
+            border-radius: 0;
+            padding: 35px 80px 35px 380px;
+            color: #333;
+            font-size: 30px;
             font-weight: bold;
-            text-align: center;
-            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.5);
-            transition: opacity 0.3s, transform 0.3s;
+            text-align: left;
+            box-shadow: none;
+            transition: opacity 0.3s;
             white-space: pre-line;
-            line-height: 1.4;
+            line-height: 1.5;
+            z-index: 3;
+            display: flex;
+            align-items: center;
         }
 
         #message-box.hidden {
             opacity: 0;
-            transform: translateX(-50%) translateY(20px);
         }
 
         #next-button {
@@ -185,6 +208,8 @@
     <div id="game-container">
         <canvas id="gameCanvas" width="1280" height="720"></canvas>
         <div id="ui-layer">
+            <img id="msg-window-bg" src="assets/message_window.png" alt="">
+            <img id="char-gif" src="assets/onohaha_mepaci.gif" alt="">
             <div id="try-counter">トライ 1 / 3</div>
             <div id="message-box" class="hidden"></div>
             <button id="next-button">次へ</button>
@@ -196,11 +221,17 @@
         </div>
     </div>
 
+    <!-- BGM / 効果音 -->
+    <audio id="bgm" src="assets/bgm_keikan.mp3" loop></audio>
+    <audio id="sfx-drink" src="assets/drink.mp3"></audio>
+
     <script>
         /**
          * ScaleManager: ウィンドウサイズに合わせて1280x720のアスペクト比を維持して拡大縮小
          */
         const container = document.getElementById('game-container');
+        const bgm = document.getElementById('bgm');
+        const sfxDrink = document.getElementById('sfx-drink');
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -316,6 +347,7 @@
                 const startScreen = document.getElementById('start-screen');
                 startBtn.addEventListener('click', () => {
                     startScreen.style.display = 'none';
+                    bgm.play();
                     initGame();
                 });
             }
@@ -364,6 +396,11 @@
             messageBox.classList.add('hidden');
         }
 
+        function playDrink() {
+            sfxDrink.currentTime = 0;
+            sfxDrink.play();
+        }
+
         function initGame() {
             state.tryIndex = 1;
             state.milk = 100;
@@ -371,6 +408,8 @@
             state.phase = 'FEEDING';
             state.tilt = 0;
             state.targetTilt = 0;
+
+            playDrink(); // トライ1開始
 
             updateUI();
             isGameRunning = true;
@@ -445,6 +484,7 @@
                 } else if (state.endTransitionTimer > 0) {
                     state.endTransitionTimer -= dt;
                     if (state.endTransitionTimer <= 0) {
+                        sessionStorage.setItem('bgmTime', bgm.currentTime);
                         window.location.href = 'phase2.html';
                     }
                 }
@@ -461,6 +501,7 @@
                     state.tryIndex++;
                     state.phase = 'FEEDING';
                     state.stamina = 100;
+                    playDrink(); // トライ2・3開始
                     updateUI();
                 }
                 return;

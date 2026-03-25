@@ -64,29 +64,58 @@
             border: 3px solid #fff;
         }
 
+        #msg-window-bg {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 1280px;
+            height: 216px;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        #char-gif {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 450px;
+            width: auto;
+            z-index: 9;
+            pointer-events: none;
+        }
+
         #message-box {
             position: absolute;
-            bottom: 40px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 800px;
-            background: linear-gradient(to bottom, #f2a65a, #d96f32);
-            border: 5px solid #fff;
-            border-radius: 40px;
-            padding: 20px 40px;
-            color: white;
-            font-size: 32px;
+            bottom: 0;
+            left: 0;
+            width: 1280px;
+            height: 216px;
+            box-sizing: border-box;
+            background: none;
+            border: none;
+            border-radius: 0;
+            padding: 35px 80px 35px 380px;
+            color: #333;
+            font-size: 30px;
             font-weight: bold;
-            text-align: center;
-            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.5);
-            transition: opacity 0.3s, transform 0.3s;
+            text-align: left;
+            box-shadow: none;
+            transition: opacity 0.3s;
             white-space: pre-line;
-            line-height: 1.4;
+            line-height: 1.5;
+            z-index: 3;
+            display: flex;
+            align-items: center;
         }
 
         #message-box.hidden {
             opacity: 0;
-            transform: translateX(-50%) translateY(20px);
+        }
+
+        #message-box.narration {
+            padding: 35px 80px;
+            justify-content: center;
+            text-align: center;
         }
 
         #next-button {
@@ -167,8 +196,10 @@
     <div id="game-container">
         <canvas id="gameCanvas" width="1280" height="720"></canvas>
         <div id="ui-layer">
+            <img id="msg-window-bg" src="assets/message_window.png" alt="">
+            <img id="char-gif" src="assets/onohaha_mepaci.gif" alt="">
             <div id="progress-text">注入中 0 / 20</div>
-            <div id="message-box">ミルクを一定量、注入してあげましょう</div>
+            <div id="message-box" class="hidden"></div>
             <button id="next-button">次へ</button>
             <div id="end-screen">
                 <h1>よくがんばりました</h1>
@@ -177,7 +208,21 @@
         </div>
     </div>
 
+    <!-- BGM -->
+    <audio id="bgm" src="assets/bgm_keikan.mp3" loop></audio>
+
     <script>
+        /**
+         * BGM: index.htmlからの再生位置を引き継いでループ再生
+         */
+        const bgm = document.getElementById('bgm');
+        const savedBgmTime = parseFloat(sessionStorage.getItem('bgmTime') || '0');
+        bgm.addEventListener('canplay', () => {
+            bgm.currentTime = savedBgmTime;
+            bgm.play();
+        }, { once: true });
+        bgm.load();
+
         /**
          * ScaleManager: ウィンドウサイズに合わせて1280x720の比率を維持
          */
@@ -189,6 +234,7 @@
         const progressTextUI = document.getElementById('progress-text');
         const nextButton = document.getElementById('next-button');
         const debugPanel = document.getElementById('debug-panel');
+        const charGif = document.getElementById('char-gif');
 
         const BASE_WIDTH = 1280;
         const BASE_HEIGHT = 720;
@@ -315,7 +361,8 @@
             alertBubbles: [],
             isPushing: false,
             hitRect: { x: 0, y: 0, w: 0, h: 0 },
-            glowTime: 0
+            glowTime: 0,
+            serif2Shown: false
         };
 
         function showMessage(text, duration = 0) {
@@ -323,6 +370,20 @@
             messageBox.classList.remove('hidden');
             if (duration > 0) state.messageTimer = duration;
             else state.messageTimer = -1;
+        }
+
+        function showSerif(text, duration = 3.0) {
+            charGif.style.display = 'block';
+            messageBox.classList.remove('narration');
+            showMessage(text, duration);
+            setTimeout(() => { charGif.style.display = 'none'; }, duration * 1000);
+        }
+
+        function showNarration(text, duration = 3.0) {
+            charGif.style.display = 'none';
+            messageBox.classList.add('narration');
+            showMessage(text, duration);
+            setTimeout(() => { messageBox.classList.remove('narration'); }, duration * 1000);
         }
 
         function initGame() {
@@ -338,6 +399,13 @@
             state.redTime = 0;
             state.chokeCount = 0;
             state.isPushing = false;
+            state.serif2Shown = false;
+
+            // セリフ1（立ち絵あり）→ナレーション（立ち絵なし・中央）
+            showSerif("残りは注入にしようね", 3.0);
+            setTimeout(() => {
+                showNarration("「シリンジを手で押してゆっくりミルクを注入しましょう」", 3.5);
+            }, 3000);
 
             updateUI();
             isGameRunning = true;
@@ -485,6 +553,12 @@
             state.milk = 100 - (state.progress * 5);
             if (state.milk < 0) state.milk = 0;
             state.pushPos = (100 - state.milk) / 100;
+
+            // セリフ2：半分注入したところで
+            if (state.progress >= 10 && !state.serif2Shown && state.phase === 'PLAY') {
+                state.serif2Shown = true;
+                showSerif("一気に注入しちゃうとむせちゃうから気をつけないと", 4.0);
+            }
 
             // クリア判定
             if (state.progress >= state.maxProgress && state.phase === "PLAY") {
